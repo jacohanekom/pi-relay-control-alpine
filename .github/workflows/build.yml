@@ -81,11 +81,15 @@ jobs:
             -e HOME=/work/apk-home -e REPODEST=/work/apk-dist \
             alpine:3.20 sh -c '
               set -e
-              # alpine-sdk pulls in abuild-sudo, which lets members of the
-              # "abuild" group escalate for apk installs (of makedepends
-              # etc.) without any doas/sudo config -- no separate privilege
-              # tool needed.
-              apk add --no-cache alpine-sdk
+              # abuild-keygen -i (installs the pubkey to /etc/apk/keys) and
+              # abuild'\''s makedepends install both shell out to doas
+              # directly -- alpine-sdk'\''s abuild-sudo group trick alone
+              # does not cover this. doas.conf must be at /etc/doas.conf
+              # (not /etc/doas.d/) and use "nopass" (doas syntax, not
+              # sudo'\''s "nopasswd").
+              apk add --no-cache alpine-sdk doas
+              echo "permit nopass builder" > /etc/doas.conf
+              chmod 0400 /etc/doas.conf
 
               adduser -D builder
               addgroup builder abuild
