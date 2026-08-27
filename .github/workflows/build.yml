@@ -27,6 +27,12 @@ jobs:
             set -e
             apk add --no-cache build-base git linux-headers
 
+            # musl has no dynamic-linker cache, so Alpine ships no ldconfig,
+            # but lg'\''s install target calls it unconditionally. Shim it as
+            # a no-op rather than patching lg'\''s Makefile.
+            printf "#!/bin/sh\n" > /usr/local/bin/ldconfig
+            chmod +x /usr/local/bin/ldconfig
+
             git clone --depth 1 https://github.com/joan2937/lg /tmp/lg
             make -C /tmp/lg
             make -C /tmp/lg install
