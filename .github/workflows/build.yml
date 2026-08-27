@@ -87,7 +87,13 @@ jobs:
               # does not cover this. doas.conf must be at /etc/doas.conf
               # (not /etc/doas.d/) and use "nopass" (doas syntax, not
               # sudo'\''s "nopasswd").
-              apk add --no-cache alpine-sdk doas
+              #
+              # `apk update` (not `add --no-cache`) so a persistent index
+              # cache exists in /var/cache/apk -- abuild'\''s own internal
+              # `apk add` for makedepends has no index otherwise and
+              # reports every package as nonexistent.
+              apk update
+              apk add alpine-sdk doas
               echo "permit nopass builder" > /etc/doas.conf
               chmod 0400 /etc/doas.conf
 

@@ -6,7 +6,7 @@ pkgdesc="GPIO relay control daemon for Raspberry Pi (Alpine/OpenRC)"
 url="https://github.com/jacohanekom/pi-relay-control-alpine"
 arch="aarch64"
 license="custom"
-makedepends="g++ linux-headers"
+makedepends="linux-headers"
 options="!check"
 
 # lgpio isn't packaged for Alpine, so it's fetched and built from source
