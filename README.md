@@ -1,0 +1,115 @@
+# pi-relay-control-alpine
+
+A GPIO relay control daemon for Raspberry Pi 3 running Alpine Linux (aarch64).
+Exposes a simple TCP socket interface to turn a relay on/off and query its
+state, with persistent state across restarts.
+
+This is an Alpine/OpenRC port of [pi-relay-control](https://github.com/jacohanekom/pi-relay-control)
+(which targets Raspberry Pi 5 / Raspberry Pi OS / systemd). The daemon code
+is the same; only packaging and the GPIO chip auto-detect differ. It has no
+Debian packaging and doesn't publish to the aipicam APT repo -- CI just
+builds a binary tarball.
+
+## Requirements
+
+- Raspberry Pi 3 (or 2/4/5) running Alpine Linux, aarch64
+- `liblgpio.so.1` at runtime (not in Alpine's repos -- see below)
+- Relay connected to BCM GPIO pin 5 (configurable)
+
+## Install from a release build
+
+Every push builds `pi-relay-control-alpine-aarch64.tar.gz` (GitHub Actions
+artifact; tagged `v*` pushes also attach it to a GitHub Release). It
+contains the `relay_control` binary, `liblgpio.so.1`, the default config,
+and the OpenRC init script.
+
+```sh
+tar xzf pi-relay-control-alpine-aarch64.tar.gz
+cd pi-relay-control-alpine-aarch64
+
+install -Dm755 relay_control /usr/bin/relay_control
+install -Dm755 liblgpio.so.1 /usr/lib/liblgpio.so.1
+install -Dm644 pi-relay-control.conf /etc/pi-relay-control.conf
+install -Dm755 pi-relay-control.initd /etc/init.d/pi-relay-control
+
+rc-update add pi-relay-control default
+rc-service pi-relay-control start
+```
+
+`relay_control` is linked with `-static-libgcc -static-libstdc++`, so the
+only runtime shared-library dependency beyond musl itself is
+`liblgpio.so.1`, which the tarball provides -- no `apk add` needed for it.
+
+## Build from source
+
+```sh
+apk add build-base git linux-headers
+
+git clone --depth 1 https://github.com/joan2937/lg /tmp/lg
+make -C /tmp/lg
+sudo make -C /tmp/lg install   # installs liblgpio.so.1 + headers to /usr/local
+
+make
+sudo make install               # installs to /usr/bin, /etc, /etc/init.d
+```
+
+If you installed `liblgpio` to `/usr/local/lib` and it's not being found at
+runtime, copy `liblgpio.so.1` into `/usr/lib` (in musl's default search
+path) instead of relying on `/usr/local/lib`.
+
+## Configuration
+
+Edit `/etc/pi-relay-control.conf`:
+
+```
+gpio_pin 5    # BCM GPIO pin number
+port 7778     # TCP socket port
+```
+
+Restart after changes: `rc-service pi-relay-control restart`
+
+## Usage
+
+Control the relay with any TCP client, e.g. `nc`:
+
+```bash
+echo "on"     | nc localhost 7778    # Turn relay ON  → OK RELAY=ON
+echo "off"    | nc localhost 7778    # Turn relay OFF → OK RELAY=OFF
+echo "status" | nc localhost 7778    # Query state    → RELAY=ON
+```
+
+### Commands
+
+| Command  | Response                                    |
+|----------|---------------------------------------------|
+| `on`     | `OK RELAY=ON`                               |
+| `off`    | `OK RELAY=OFF`                              |
+| `status` | `RELAY=ON` or `RELAY=OFF`                   |
+| other    | `ERR unknown command. Use: on | off | status` |
+
+## Service management
+
+```bash
+rc-service pi-relay-control start
+rc-service pi-relay-control stop
+rc-service pi-relay-control restart
+rc-update add pi-relay-control default   # start on boot
+rc-service pi-relay-control status
+```
+
+The service runs as root, respawns automatically on failure (5 s delay,
+unlimited retries, via `supervise-daemon`), and persists relay state to
+`/var/lib/relay_control/state` so the relay returns to its last position
+after a reboot.
+
+## GPIO chip detection
+
+The daemon opens the gpiochip exposing the 40-pin header by label rather
+than assuming a fixed chip number, since that number shifts depending on
+what else (HATs, PMIC, etc.) enumerates first:
+
+- `pinctrl-rp1` -- Raspberry Pi 5's RP1 southbridge
+- `pinctrl-bcm2835` -- the SoC's own GPIO controller on Pi 1/2/3/4,
+  including under Alpine's `linux-rpi` kernel
+
+Falls back to `gpiochip0` if neither label is found.

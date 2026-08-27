@@ -1,0 +1,24 @@
+#!/sbin/openrc-run
+
+name="pi-relay-control"
+description="GPIO relay control daemon"
+
+command="/usr/bin/relay_control"
+command_user="root"
+
+supervisor=supervise-daemon
+respawn_delay=5
+respawn_max=0
+
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/${RC_SVCNAME}.log"
+error_log="/var/log/${RC_SVCNAME}.log"
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    checkpath -d -m 0755 -o root:root /var/lib/relay_control
+}
