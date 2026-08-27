@@ -1,20 +1,22 @@
 # pi-relay-control-alpine
 
 A GPIO relay control daemon for Raspberry Pi 3 running Alpine Linux (aarch64).
-Exposes a simple TCP socket interface to turn a relay on/off and query its
-state, with persistent state across restarts.
+Exposes a simple TCP socket interface to turn one or more relays on/off and
+query their state, with persistent state across restarts.
 
-This is an Alpine/OpenRC port of [pi-relay-control](https://github.com/jacohanekom/pi-relay-control)
-(which targets Raspberry Pi 5 / Raspberry Pi OS / systemd). The daemon code
-is the same; only packaging and the GPIO chip auto-detect differ. It has no
-Debian packaging and doesn't publish to the aipicam APT repo -- CI builds a
-plain binary tarball and a standalone, offline-installable `.apk`.
+This started as an Alpine/OpenRC port of [pi-relay-control](https://github.com/jacohanekom/pi-relay-control)
+(which targets Raspberry Pi 5 / Raspberry Pi OS / systemd, and controls a
+single relay). This repo has since diverged: it supports any number of
+relays, each on its own GPIO pin and TCP port, configured as separate
+`relay` lines in `/etc/pi-relay-control.conf`. It has no Debian packaging
+and doesn't publish to the aipicam APT repo -- CI builds a plain binary
+tarball and a standalone, offline-installable `.apk`.
 
 ## Requirements
 
 - Raspberry Pi 3 (or 2/4/5) running Alpine Linux, aarch64
 - `liblgpio.so.1` at runtime (not in Alpine's repos -- see below)
-- Relay connected to BCM GPIO pin 5 (configurable)
+- One or more relays, each on its own BCM GPIO pin (configurable)
 
 ## Install the .apk (recommended)
 
@@ -81,18 +83,24 @@ path) instead of relying on `/usr/local/lib`.
 
 ## Configuration
 
-Edit `/etc/pi-relay-control.conf`:
+Edit `/etc/pi-relay-control.conf`, one line per relay:
 
 ```
-gpio_pin 5    # BCM GPIO pin number
-port 7778     # TCP socket port
+relay 5 7778    # BCM GPIO 5,  controlled on TCP port 7778
+relay 6 7779    # BCM GPIO 6,  controlled on TCP port 7779
 ```
+
+Each relay runs its own listener on its own port, so ports must be unique.
+The daemon claims all configured pins on the same gpiochip at startup. If
+no `relay` lines are present, it falls back to a single relay on GPIO 5 /
+port 7778.
 
 Restart after changes: `rc-service pi-relay-control restart`
 
 ## Usage
 
-Control the relay with any TCP client, e.g. `nc`:
+Control a relay with any TCP client, e.g. `nc`, against the port assigned
+to it in the config:
 
 ```bash
 echo "on"     | nc localhost 7778    # Turn relay ON  → OK RELAY=ON
@@ -120,9 +128,9 @@ rc-service pi-relay-control status
 ```
 
 The service runs as root, respawns automatically on failure (5 s delay,
-unlimited retries, via `supervise-daemon`), and persists relay state to
-`/var/lib/relay_control/state` so the relay returns to its last position
-after a reboot.
+unlimited retries, via `supervise-daemon`), and persists each relay's
+state to `/var/lib/relay_control/state_pin<N>` (one file per configured
+GPIO pin) so every relay returns to its last position after a reboot.
 
 ## GPIO chip detection
 

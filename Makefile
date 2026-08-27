@@ -1,5 +1,5 @@
 CXX      = g++
-CXXFLAGS = -Wall -O2 -std=c++17 -static-libgcc -static-libstdc++
+CXXFLAGS = -Wall -O2 -std=c++17 -static-libgcc -static-libstdc++ -pthread
 LDFLAGS  = -llgpio
 TARGET   = relay_control
 SRCDIR   = src

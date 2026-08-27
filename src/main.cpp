@@ -2,6 +2,8 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
+#include <thread>
 #include <algorithm>
 #include <filesystem>
 #include <sys/socket.h>
@@ -14,68 +16,85 @@
 #include <lgpio.h>
 
 const std::string CONFIG_FILE = "/etc/pi-relay-control.conf";
-const std::string STATE_FILE  = "/var/lib/relay_control/state";
+const std::string STATE_DIR   = "/var/lib/relay_control";
 const int DEFAULT_GPIO_PIN    = 5;     // BCM 5 = IO21 on HAT
 const int DEFAULT_PORT        = 7778;
 
+struct Relay {
+    int gpioPin;
+    int port;
+    std::string stateFile;
+};
+
 int gpioHandle = -1;
-int GPIO_PIN   = DEFAULT_GPIO_PIN;
-int SOCKET_PORT = DEFAULT_PORT;
+std::vector<Relay> g_relays;
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
+// Each relay is one line: "relay <gpio_pin> <port>". Multiple lines
+// configure multiple independently-controlled relays sharing the same
+// gpiochip, each with its own TCP port and persisted state file. If no
+// "relay" lines are present, a single relay is configured from the
+// built-in defaults.
 void loadConfig() {
     std::ifstream file(CONFIG_FILE);
     if (!file.is_open()) {
         std::cout << "No config at " << CONFIG_FILE << ", using defaults." << std::endl;
-        return;
-    }
+    } else {
+        std::string line;
+        while (std::getline(file, line)) {
+            // Strip comments and trim whitespace
+            auto comment = line.find('#');
+            if (comment != std::string::npos)
+                line = line.substr(0, comment);
+            if (line.empty()) continue;
 
-    std::string line;
-    while (std::getline(file, line)) {
-        // Strip comments and trim whitespace
-        auto comment = line.find('#');
-        if (comment != std::string::npos)
-            line = line.substr(0, comment);
-        if (line.empty()) continue;
+            std::istringstream iss(line);
+            std::string key;
+            if (!(iss >> key)) continue;
 
-        std::istringstream iss(line);
-        std::string key;
-        if (!(iss >> key)) continue;
-
-        if (key == "gpio_pin") {
-            iss >> GPIO_PIN;
-            std::cout << "Config: gpio_pin=" << GPIO_PIN << std::endl;
-        } else if (key == "port") {
-            iss >> SOCKET_PORT;
-            std::cout << "Config: port=" << SOCKET_PORT << std::endl;
+            if (key == "relay") {
+                Relay r;
+                if (!(iss >> r.gpioPin >> r.port)) {
+                    std::cerr << "Malformed relay line, expected: relay <gpio_pin> <port>" << std::endl;
+                    continue;
+                }
+                r.stateFile = STATE_DIR + "/state_pin" + std::to_string(r.gpioPin);
+                std::cout << "Config: relay gpio_pin=" << r.gpioPin << " port=" << r.port << std::endl;
+                g_relays.push_back(r);
+            }
         }
+        file.close();
     }
-    file.close();
+
+    if (g_relays.empty()) {
+        g_relays.push_back({DEFAULT_GPIO_PIN, DEFAULT_PORT,
+                             STATE_DIR + "/state_pin" + std::to_string(DEFAULT_GPIO_PIN)});
+    }
 }
 
 // ── State persistence ────────────────────────────────────────────────────────
 
-void saveState(int state) {
-    std::ofstream file(STATE_FILE);
+void saveState(const Relay& relay, int state) {
+    std::ofstream file(relay.stateFile);
     if (file.is_open()) {
         file << state;
         file.close();
     } else {
-        std::cerr << "Failed to save state to " << STATE_FILE << std::endl;
+        std::cerr << "Failed to save state to " << relay.stateFile << std::endl;
     }
 }
 
-int loadState() {
-    std::ifstream file(STATE_FILE);
+int loadState(const Relay& relay) {
+    std::ifstream file(relay.stateFile);
     if (!file.is_open()) {
-        std::cout << "No state file found, defaulting to OFF" << std::endl;
+        std::cout << "No state file found for GPIO " << relay.gpioPin << ", defaulting to OFF" << std::endl;
         return 0;
     }
     int state = 0;
     file >> state;
     file.close();
-    std::cout << "Restored state: " << (state ? "ON" : "OFF") << std::endl;
+    std::cout << "Restored GPIO " << relay.gpioPin << " state: " << (state ? "ON" : "OFF") << std::endl;
     return state;
 }
 
@@ -127,8 +146,11 @@ int findMainGpiochip() {
     return -1;
 }
 
+// Opens the shared gpiochip once and claims every configured relay's pin
+// as an output on it -- one chip handle covers all lines on the header,
+// so relays don't each need their own chip open.
 void setup() {
-    system("mkdir -p /var/lib/relay_control");
+    system(("mkdir -p " + STATE_DIR).c_str());
 
     int chipNum = findMainGpiochip();
     if (chipNum < 0) {
@@ -145,27 +167,30 @@ void setup() {
         return;
     }
 
-    int lastState = loadState();
-    lgGpioClaimOutput(gpioHandle, 0, GPIO_PIN, lastState);
-    std::cout << "GPIO " << GPIO_PIN << " ready, state="
-              << (lastState ? "ON" : "OFF") << std::endl;
+    for (const auto& relay : g_relays) {
+        int lastState = loadState(relay);
+        lgGpioClaimOutput(gpioHandle, 0, relay.gpioPin, lastState);
+        std::cout << "GPIO " << relay.gpioPin << " ready, state="
+                  << (lastState ? "ON" : "OFF") << std::endl;
+    }
 }
 
 void cleanup() {
     if (gpioHandle >= 0) {
-        lgGpioWrite(gpioHandle, GPIO_PIN, 0);
+        for (const auto& relay : g_relays)
+            lgGpioWrite(gpioHandle, relay.gpioPin, 0);
         lgGpiochipClose(gpioHandle);
     }
 }
 
-void setRelay(int state) {
-    lgGpioWrite(gpioHandle, GPIO_PIN, state);
-    saveState(state);
+void setRelay(const Relay& relay, int state) {
+    lgGpioWrite(gpioHandle, relay.gpioPin, state);
+    saveState(relay, state);
 }
 
 // ── Socket server ────────────────────────────────────────────────────────────
 
-void handleClient(int clientFd) {
+void handleClient(int clientFd, const Relay& relay) {
     char buf[256] = {};
 
     int n = recv(clientFd, buf, sizeof(buf) - 1, 0);
@@ -177,30 +202,27 @@ void handleClient(int clientFd) {
     std::string response;
 
     if (cmd == "on") {
-        setRelay(1);
+        setRelay(relay, 1);
         response = "OK RELAY=ON\n";
 
     } else if (cmd == "off") {
-        setRelay(0);
+        setRelay(relay, 0);
         response = "OK RELAY=OFF\n";
 
     } else if (cmd == "status") {
-        int val = lgGpioRead(gpioHandle, GPIO_PIN);
+        int val = lgGpioRead(gpioHandle, relay.gpioPin);
         response = "RELAY=" + std::string(val ? "ON" : "OFF") + "\n";
 
     } else {
         response = "ERR unknown command. Use: on | off | status\n";
     }
 
-    std::cout << "CMD: " << cmd << " -> " << response;
+    std::cout << "GPIO " << relay.gpioPin << " CMD: " << cmd << " -> " << response;
     send(clientFd, response.c_str(), response.size(), 0);
     close(clientFd);
 }
 
-int main() {
-    loadConfig();
-    setup();
-
+void runRelayServer(Relay relay) {
     int serverFd = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
     setsockopt(serverFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -208,18 +230,33 @@ int main() {
     sockaddr_in addr{};
     addr.sin_family      = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port        = htons(SOCKET_PORT);
+    addr.sin_port        = htons(relay.port);
 
-    bind(serverFd, (sockaddr*)&addr, sizeof(addr));
+    if (bind(serverFd, (sockaddr*)&addr, sizeof(addr)) < 0) {
+        std::cerr << "Failed to bind port " << relay.port << " for GPIO " << relay.gpioPin << std::endl;
+        return;
+    }
     listen(serverFd, 5);
 
-    std::cout << "Relay control listening on port " << SOCKET_PORT << std::endl;
+    std::cout << "GPIO " << relay.gpioPin << " relay listening on port " << relay.port << std::endl;
 
     while (true) {
         int clientFd = accept(serverFd, nullptr, nullptr);
         if (clientFd >= 0)
-            handleClient(clientFd);
+            handleClient(clientFd, relay);
     }
+}
+
+int main() {
+    loadConfig();
+    setup();
+
+    std::vector<std::thread> servers;
+    for (const auto& relay : g_relays)
+        servers.emplace_back(runRelayServer, relay);
+
+    for (auto& t : servers)
+        t.join();
 
     cleanup();
     return 0;

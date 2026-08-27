@@ -1,6 +1,6 @@
 # Maintainer: Jaco Hanekom <jhanekom@gmail.com>
 pkgname=pi-relay-control
-pkgver=1.0.0
+pkgver=1.1.0
 pkgrel=0
 pkgdesc="GPIO relay control daemon for Raspberry Pi (Alpine/OpenRC)"
 url="https://github.com/jacohanekom/pi-relay-control-alpine"
@@ -31,7 +31,7 @@ prepare() {
 build() {
 	make -C "$_lgpio_dir"
 
-	g++ -Wall -O2 -std=c++17 -static-libgcc -static-libstdc++ \
+	g++ -Wall -O2 -std=c++17 -static-libgcc -static-libstdc++ -pthread \
 		-I"$_lgpio_dir" -L"$_lgpio_dir" \
 		-o relay_control main.cpp -llgpio
 }
