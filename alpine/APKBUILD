@@ -1,0 +1,45 @@
+# Maintainer: Jaco Hanekom <jhanekom@gmail.com>
+pkgname=pi-relay-control
+pkgver=1.0.0
+pkgrel=0
+pkgdesc="GPIO relay control daemon for Raspberry Pi (Alpine/OpenRC)"
+url="https://github.com/jacohanekom/pi-relay-control-alpine"
+arch="aarch64"
+license="custom"
+makedepends="g++ linux-headers"
+options="!check"
+
+# lgpio isn't packaged for Alpine, so it's fetched and built from source
+# here and its liblgpio.so.1 shipped inside this package -- there's no
+# apk to depend on instead.
+_lgpio_commit="bcccd782eceedc5b278b3056ea81d5fbbb89c489"
+_lgpio_dir="lg-$_lgpio_commit"
+
+source="$_lgpio_dir.tar.gz::https://github.com/joan2937/lg/archive/$_lgpio_commit.tar.gz"
+builddir="$srcdir"
+
+# main.cpp and the packaging files live one directory up (this repo's
+# root), not in a source= tarball, since they're part of this same repo
+# rather than a separate upstream project.
+prepare() {
+	default_prepare
+	cp "$startdir"/../src/main.cpp "$srcdir"/main.cpp
+	cp "$startdir"/../pi-relay-control.conf "$srcdir"/pi-relay-control.conf
+	cp "$startdir"/../openrc/pi-relay-control.initd "$srcdir"/pi-relay-control.initd
+}
+
+build() {
+	make -C "$_lgpio_dir"
+
+	g++ -Wall -O2 -std=c++17 -static-libgcc -static-libstdc++ \
+		-I"$_lgpio_dir" -L"$_lgpio_dir" \
+		-o relay_control main.cpp -llgpio
+}
+
+package() {
+	install -Dm755 relay_control "$pkgdir"/usr/bin/relay_control
+	install -Dm755 "$_lgpio_dir"/liblgpio.so.1 "$pkgdir"/usr/lib/liblgpio.so.1
+	install -Dm644 pi-relay-control.conf "$pkgdir"/etc/pi-relay-control.conf
+	install -Dm755 pi-relay-control.initd "$pkgdir"/etc/init.d/pi-relay-control
+	install -d -m 755 "$pkgdir"/var/lib/relay_control
+}

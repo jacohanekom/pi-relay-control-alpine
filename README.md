@@ -7,8 +7,8 @@ state, with persistent state across restarts.
 This is an Alpine/OpenRC port of [pi-relay-control](https://github.com/jacohanekom/pi-relay-control)
 (which targets Raspberry Pi 5 / Raspberry Pi OS / systemd). The daemon code
 is the same; only packaging and the GPIO chip auto-detect differ. It has no
-Debian packaging and doesn't publish to the aipicam APT repo -- CI just
-builds a binary tarball.
+Debian packaging and doesn't publish to the aipicam APT repo -- CI builds a
+plain binary tarball and a standalone, offline-installable `.apk`.
 
 ## Requirements
 
@@ -16,7 +16,29 @@ builds a binary tarball.
 - `liblgpio.so.1` at runtime (not in Alpine's repos -- see below)
 - Relay connected to BCM GPIO pin 5 (configurable)
 
-## Install from a release build
+## Install the .apk (recommended)
+
+Every push builds `pi-relay-control-aarch64.apk` (GitHub Actions artifact;
+tagged `v*` pushes also attach it to a GitHub Release), built via `abuild`
+from [`alpine/APKBUILD`](alpine/APKBUILD). It bundles `relay_control`,
+`liblgpio.so.1`, the config, and the OpenRC init script as a normal apk
+package -- installs, uninstalls, and upgrades cleanly with `apk`, no repo
+or network access needed on the Pi itself.
+
+It's signed with a throwaway key generated fresh in CI each run (there's
+no distributed repo to establish trust for), so install with
+`--allow-untrusted`:
+
+```sh
+apk add --allow-untrusted ./pi-relay-control-aarch64.apk
+
+rc-update add pi-relay-control default
+rc-service pi-relay-control start
+```
+
+Uninstall with `apk del pi-relay-control`.
+
+## Install from the release tarball
 
 Every push builds `pi-relay-control-alpine-aarch64.tar.gz` (GitHub Actions
 artifact; tagged `v*` pushes also attach it to a GitHub Release). It
