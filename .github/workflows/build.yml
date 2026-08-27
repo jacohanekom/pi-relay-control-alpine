@@ -100,7 +100,13 @@ jobs:
               adduser -D builder
               addgroup builder abuild
               mkdir -p "$HOME"
-              chown -R builder:builder /work
+              # Only these need to be builder-writable (abuild populates
+              # alpine/src and alpine/pkg, HOME holds the signing key,
+              # REPODEST holds the built .apk) -- chowning all of /work
+              # would leave the bind-mounted checkout owned by builder'\''s
+              # uid on the host after the container exits, breaking the
+              # runner'\''s own later steps with Permission denied.
+              chown -R builder:builder /work/alpine "$HOME" "$REPODEST"
 
               su builder -c "
                 set -e
