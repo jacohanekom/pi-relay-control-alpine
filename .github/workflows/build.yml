@@ -81,12 +81,14 @@ jobs:
             -e HOME=/work/apk-home -e REPODEST=/work/apk-dist \
             alpine:3.20 sh -c '
               set -e
-              apk add --no-cache alpine-sdk doas
+              # alpine-sdk pulls in abuild-sudo, which lets members of the
+              # "abuild" group escalate for apk installs (of makedepends
+              # etc.) without any doas/sudo config -- no separate privilege
+              # tool needed.
+              apk add --no-cache alpine-sdk
 
               adduser -D builder
               addgroup builder abuild
-              mkdir -p /etc/doas.d
-              echo "permit nopasswd builder" > /etc/doas.d/doas.conf
               mkdir -p "$HOME"
               chown -R builder:builder /work
 
