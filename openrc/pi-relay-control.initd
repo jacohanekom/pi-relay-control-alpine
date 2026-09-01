@@ -20,5 +20,9 @@ depend() {
 }
 
 start_pre() {
+    if [ ! -f /.successfully-initialized ]; then
+        eerror "pi-relay-control: /.successfully-initialized not found -- device not yet provisioned, refusing to start"
+        return 1
+    fi
     checkpath -d -m 0755 -o root:root /var/lib/relay_control
 }

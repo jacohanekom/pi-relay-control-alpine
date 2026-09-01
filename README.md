@@ -132,6 +132,16 @@ unlimited retries, via `supervise-daemon`), and persists each relay's
 state to `/var/lib/relay_control/state_pin<N>` (one file per configured
 GPIO pin) so every relay returns to its last position after a reboot.
 
+**Requires device provisioning**: `start_pre()` refuses to start unless
+`/.successfully-initialized` exists at the filesystem root -- the marker
+file [pi-bluetooth-configuration](https://github.com/jacohanekom/pi-bluetooth-configuration-alpine)
+creates once its BLE setup wizard finishes. This keeps the relay from
+being driven on a freshly-imaged Pi that hasn't been provisioned yet. On
+a fully unprovisioned device, `rc-update add pi-relay-control default`
+still registers the service, but boot-time start attempts fail (logged)
+until provisioning completes and the Pi reboots -- at which point the
+marker file already exists and the service starts normally on its own.
+
 ## GPIO chip detection
 
 The daemon opens the gpiochip exposing the 40-pin header by label rather
