@@ -86,14 +86,23 @@ path) instead of relying on `/usr/local/lib`.
 Edit `/etc/pi-relay-control.conf`, one line per relay:
 
 ```
-relay 5 7778    # BCM GPIO 5,  controlled on TCP port 7778
-relay 6 7779    # BCM GPIO 6,  controlled on TCP port 7779
+relay 5 7778             # BCM GPIO 5, controlled on TCP port 7778
+relay 6 7779             # BCM GPIO 6, controlled on TCP port 7779
+relay 7 7780 always_on   # BCM GPIO 7, controlled on TCP port 7780, forced ON at startup
 ```
 
 Each relay runs its own listener on its own port, so ports must be unique.
 The daemon claims all configured pins on the same gpiochip at startup. If
 no `relay` lines are present, it falls back to a single relay on GPIO 5 /
 port 7778.
+
+`always_on` forces that relay ON every time the daemon starts (and
+persists that as its saved state), overriding whatever a client last
+left it as -- for a relay that should always come up energized when the
+Pi boots, rather than resuming its last position. Without it, each
+relay resumes whatever state was last saved to
+`/var/lib/relay_control/state_pin<N>`, defaulting to OFF if no state
+file exists yet.
 
 Restart after changes: `rc-service pi-relay-control restart`
 

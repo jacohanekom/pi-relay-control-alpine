@@ -24,6 +24,7 @@ struct Relay {
     int gpioPin;
     int port;
     std::string stateFile;
+    bool alwaysOn = false;
 };
 
 int gpioHandle = -1;
@@ -31,11 +32,16 @@ std::vector<Relay> g_relays;
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-// Each relay is one line: "relay <gpio_pin> <port>". Multiple lines
-// configure multiple independently-controlled relays sharing the same
-// gpiochip, each with its own TCP port and persisted state file. If no
-// "relay" lines are present, a single relay is configured from the
-// built-in defaults.
+// Each relay is one line: "relay <gpio_pin> <port> [always_on]".
+// Multiple lines configure multiple independently-controlled relays
+// sharing the same gpiochip, each with its own TCP port and persisted
+// state file. If no "relay" lines are present, a single relay is
+// configured from the built-in defaults.
+//
+// "always_on" forces that relay ON every time this daemon starts,
+// ignoring whatever state was last persisted -- for a relay that
+// should come up energized whenever the Pi (and this service with it)
+// boots, rather than resuming whatever position a client last left it in.
 void loadConfig() {
     std::ifstream file(CONFIG_FILE);
     if (!file.is_open()) {
@@ -56,11 +62,20 @@ void loadConfig() {
             if (key == "relay") {
                 Relay r;
                 if (!(iss >> r.gpioPin >> r.port)) {
-                    std::cerr << "Malformed relay line, expected: relay <gpio_pin> <port>" << std::endl;
+                    std::cerr << "Malformed relay line, expected: relay <gpio_pin> <port> [always_on]" << std::endl;
                     continue;
                 }
+                std::string opt;
+                while (iss >> opt) {
+                    if (opt == "always_on") {
+                        r.alwaysOn = true;
+                    } else {
+                        std::cerr << "Unknown relay option \"" << opt << "\" for GPIO " << r.gpioPin << std::endl;
+                    }
+                }
                 r.stateFile = STATE_DIR + "/state_pin" + std::to_string(r.gpioPin);
-                std::cout << "Config: relay gpio_pin=" << r.gpioPin << " port=" << r.port << std::endl;
+                std::cout << "Config: relay gpio_pin=" << r.gpioPin << " port=" << r.port
+                          << (r.alwaysOn ? " always_on=true" : "") << std::endl;
                 g_relays.push_back(r);
             }
         }
@@ -168,7 +183,14 @@ void setup() {
     }
 
     for (const auto& relay : g_relays) {
-        int lastState = loadState(relay);
+        int lastState;
+        if (relay.alwaysOn) {
+            lastState = 1;
+            std::cout << "GPIO " << relay.gpioPin << " is always_on, forcing ON at startup" << std::endl;
+            saveState(relay, lastState);
+        } else {
+            lastState = loadState(relay);
+        }
         lgGpioClaimOutput(gpioHandle, 0, relay.gpioPin, lastState);
         std::cout << "GPIO " << relay.gpioPin << " ready, state="
                   << (lastState ? "ON" : "OFF") << std::endl;
