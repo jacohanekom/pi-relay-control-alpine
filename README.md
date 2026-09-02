@@ -151,6 +151,17 @@ still registers the service, but boot-time start attempts fail (logged)
 until provisioning completes and the Pi reboots -- at which point the
 marker file already exists and the service starts normally on its own.
 
+## Triggering relays from pi-bluetooth-configuration
+
+[pi-bluetooth-configuration](https://github.com/jacohanekom/pi-bluetooth-configuration-alpine)
+(and its [Mac client](https://github.com/jacohanekom/pi-bluetooth-configuration-client-mac))
+can optionally forward `on`/`off`/`status` to this daemon's per-relay TCP
+ports over its own BLE GATT service, once the same ports are listed
+under `[relays]` in `pi-bluetooth-configuration`'s `config.ini`. This
+daemon doesn't need to know that's happening -- from its point of view
+it's just another TCP client on `127.0.0.1`, same as `nc`. See that
+repo's README, "Relay control", for the config format and protocol.
+
 ## GPIO chip detection
 
 The daemon opens the gpiochip exposing the 40-pin header by label rather
