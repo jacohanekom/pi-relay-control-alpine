@@ -154,7 +154,7 @@ marker file already exists and the service starts normally on its own.
 ## Triggering relays from pi-bluetooth-configuration
 
 [pi-bluetooth-configuration](https://github.com/jacohanekom/pi-bluetooth-configuration-alpine)
-(and its [Mac client](https://github.com/jacohanekom/pi-bluetooth-configuration-client-mac))
+(and its [iOS client](https://github.com/jacohanekom/pi-bluetooth-configuration-client-ios))
 can optionally forward `on`/`off`/`status` to this daemon's per-relay TCP
 ports over its own BLE GATT service, once the same ports are listed
 under `[relays]` in `pi-bluetooth-configuration`'s `config.ini`. This
